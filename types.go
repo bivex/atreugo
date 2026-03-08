@@ -516,10 +516,11 @@ type RequestCtx struct {
 type Router struct {
 	noCopy nocopy.NoCopy // nolint:structcheck,unused
 
-	parent        *Router
-	router        *fastrouter.Router
-	routerMutable bool
-	errorView     ErrorView
+	parent          *Router
+	router          *fastrouter.Router
+	routerMutable   bool
+	errorView       ErrorView
+	jsonMarshalFunc JSONMarshalFunc
 
 	prefix        string
 	group         *fastrouter.Group

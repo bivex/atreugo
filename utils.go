@@ -13,9 +13,10 @@ func panicf(s string, args ...any) {
 	panic(fmt.Sprintf(s, args...))
 }
 
-func viewToHandler(view View, errorView ErrorView) fasthttp.RequestHandler {
+func viewToHandler(view View, errorView ErrorView, jsonMarshalFunc JSONMarshalFunc) fasthttp.RequestHandler {
 	return func(ctx *fasthttp.RequestCtx) {
 		actx := AcquireRequestCtx(ctx)
+		actx.jsonMarshalFunc = jsonMarshalFunc
 
 		if err := view(actx); err != nil {
 			errorView(actx, err, fasthttp.StatusInternalServerError)

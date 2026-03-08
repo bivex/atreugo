@@ -54,7 +54,7 @@ func Test_viewToHandler(t *testing.T) {
 
 	ctx := new(fasthttp.RequestCtx)
 
-	handler := viewToHandler(view, defaultErrorView)
+	handler := viewToHandler(view, defaultErrorView, defaultJSONMarshalFunc)
 	handler(ctx)
 
 	if !called {

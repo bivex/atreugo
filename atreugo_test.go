@@ -391,6 +391,86 @@ func TestAtreugo_handler(t *testing.T) { // nolint:funlen,gocognit
 	}
 }
 
+func TestAtreugo_CustomJSONMarshalFuncPropagation(t *testing.T) {
+	customJSONMarshalFunc := func(w io.Writer, body any) error {
+		_, err := io.WriteString(w, fmt.Sprintf("custom:%v", body))
+
+		return err
+	}
+
+	tests := []struct {
+		name string
+		cfg  Config
+		path string
+		want string
+	}{
+		{
+			name: "Route",
+			cfg: Config{
+				Logger:          testLog,
+				ErrorView:       defaultErrorView,
+				JSONMarshalFunc: customJSONMarshalFunc,
+			},
+			path: "/",
+			want: "custom:route",
+		},
+		{
+			name: "NotFoundView",
+			cfg: Config{
+				Logger:          testLog,
+				ErrorView:       defaultErrorView,
+				JSONMarshalFunc: customJSONMarshalFunc,
+				NotFoundView: func(ctx *RequestCtx) error {
+					return ctx.JSONResponse("missing", fasthttp.StatusNotFound)
+				},
+			},
+			path: "/missing",
+			want: "custom:missing",
+		},
+	}
+
+	for _, test := range tests {
+		tt := test
+
+		t.Run(tt.name, func(t *testing.T) {
+			s := New(tt.cfg)
+			s.GET("/", func(ctx *RequestCtx) error {
+				return ctx.JSONResponse("route")
+			})
+
+			ctx := new(fasthttp.RequestCtx)
+			ctx.Request.Header.SetMethod(fasthttp.MethodGet)
+			ctx.Request.SetRequestURI(tt.path)
+
+			s.handler()(ctx)
+
+			if body := string(ctx.Response.Body()); body != tt.want {
+				t.Errorf("Response body == %q, want %q", body, tt.want)
+			}
+		})
+	}
+
+	t.Run("PanicHandler", func(t *testing.T) {
+		s := New(Config{
+			Logger:          testLog,
+			ErrorView:       defaultErrorView,
+			JSONMarshalFunc: customJSONMarshalFunc,
+			PanicView: func(ctx *RequestCtx, _ any) {
+				if err := ctx.JSONResponse("panic", fasthttp.StatusInternalServerError); err != nil {
+					t.Fatalf("Unexpected error: %v", err)
+				}
+			},
+		})
+
+		ctx := new(fasthttp.RequestCtx)
+		s.router.PanicHandler(ctx, errors.New("boom"))
+
+		if body := string(ctx.Response.Body()); body != "custom:panic" {
+			t.Errorf("Panic handler response == %q, want %q", body, "custom:panic")
+		}
+	})
+}
+
 func Test_IsPreforkChild(t *testing.T) {
 	if IsPreforkChild() != prefork.IsChild() {
 		t.Errorf("IsPreforkChild() == %v, want %v", IsPreforkChild(), prefork.IsChild())

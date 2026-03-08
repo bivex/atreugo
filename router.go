@@ -50,10 +50,18 @@ func newRouter(cfg Config) *Router {
 	router.HandleOPTIONS = false
 
 	return &Router{
-		router:        router,
-		errorView:     cfg.ErrorView,
-		handleOPTIONS: true,
+		router:          router,
+		errorView:       cfg.ErrorView,
+		jsonMarshalFunc: cfg.JSONMarshalFunc,
+		handleOPTIONS:   true,
 	}
+}
+
+func (r *Router) acquireRequestCtx(ctx *fasthttp.RequestCtx) *RequestCtx {
+	actx := AcquireRequestCtx(ctx)
+	actx.jsonMarshalFunc = r.jsonMarshalFunc
+
+	return actx
 }
 
 func (r *Router) mutable(v bool) {
@@ -97,7 +105,19 @@ func (r *Router) getGroupFullPath(path string) string {
 func (r *Router) handler(fn View, middle Middlewares) fasthttp.RequestHandler {
 	middle = r.buildMiddlewares(middle)
 
-	chain := make([]Middleware, 0)
+	if len(middle.Before) == 0 && len(middle.After) == 0 && len(middle.Final) == 0 {
+		return func(ctx *fasthttp.RequestCtx) {
+			actx := r.acquireRequestCtx(ctx)
+
+			if err := fn(actx); err != nil {
+				r.handleMiddlewareError(actx, err)
+			}
+
+			ReleaseRequestCtx(actx)
+		}
+	}
+
+	chain := make([]Middleware, 0, len(middle.Before)+1+len(middle.After))
 	chain = append(chain, middle.Before...)
 	chain = append(chain, func(ctx *RequestCtx) error {
 		if !ctx.skipView {
@@ -112,7 +132,7 @@ func (r *Router) handler(fn View, middle Middlewares) fasthttp.RequestHandler {
 	chainLen := len(chain)
 
 	return func(ctx *fasthttp.RequestCtx) {
-		actx := AcquireRequestCtx(ctx)
+		actx := r.acquireRequestCtx(ctx)
 
 		for i := 0; i < chainLen; i++ {
 			if err := chain[i](actx); err != nil {
@@ -191,13 +211,14 @@ func (r *Router) NewGroupPath(path string) *Router {
 	}
 
 	return &Router{
-		parent:        r,
-		router:        r.router,
-		routerMutable: r.routerMutable,
-		errorView:     r.errorView,
-		prefix:        path,
-		group:         groupFunc(path),
-		handleOPTIONS: r.handleOPTIONS,
+		parent:          r,
+		router:          r.router,
+		routerMutable:   r.routerMutable,
+		errorView:       r.errorView,
+		jsonMarshalFunc: r.jsonMarshalFunc,
+		prefix:          path,
+		group:           groupFunc(path),
+		handleOPTIONS:   r.handleOPTIONS,
 	}
 }
 
@@ -379,7 +400,7 @@ func (r *Router) StaticCustom(url string, fs *StaticFS) *Path {
 
 	if fs.PathRewrite != nil {
 		ffs.PathRewrite = func(ctx *fasthttp.RequestCtx) []byte {
-			actx := AcquireRequestCtx(ctx)
+			actx := r.acquireRequestCtx(ctx)
 			result := fs.PathRewrite(actx)
 			ReleaseRequestCtx(actx)
 
@@ -388,7 +409,7 @@ func (r *Router) StaticCustom(url string, fs *StaticFS) *Path {
 	}
 
 	if fs.PathNotFound != nil {
-		ffs.PathNotFound = viewToHandler(fs.PathNotFound, r.errorView)
+		ffs.PathNotFound = viewToHandler(fs.PathNotFound, r.errorView, r.jsonMarshalFunc)
 	}
 
 	stripSlashes := strings.Count(r.getGroupFullPath(url), "/")

@@ -7,13 +7,40 @@ import (
 	"bytes"
 	"errors"
 	"log"
+	"net"
 	"syscall"
 	"testing"
 	"time"
 
-	"github.com/atreugo/mock"
 	"github.com/valyala/fasthttp/fasthttputil"
 )
+
+type gracefulTestListener struct {
+	net.Listener
+	acceptError error
+	closeError  error
+}
+
+func (ln *gracefulTestListener) Accept() (net.Conn, error) {
+	if ln.acceptError != nil {
+		return nil, ln.acceptError
+	}
+
+	return ln.Listener.Accept()
+}
+
+func (ln *gracefulTestListener) Close() error {
+	err := ln.Listener.Close()
+	if err != nil {
+		return err
+	}
+
+	if ln.closeError != nil {
+		return ln.closeError
+	}
+
+	return nil
+}
 
 func TestAtreugo_ServeGracefully(t *testing.T) { // nolint:funlen
 	type args struct {
@@ -68,10 +95,10 @@ func TestAtreugo_ServeGracefully(t *testing.T) { // nolint:funlen
 		t.Run(tt.name, func(t *testing.T) {
 			t.Helper()
 
-			ln := &mock.Listener{
+			ln := &gracefulTestListener{
 				Listener:    fasthttputil.NewInmemoryListener(),
-				AcceptError: tt.args.lnAcceptError,
-				CloseError:  tt.args.lnCloseError,
+				acceptError: tt.args.lnAcceptError,
+				closeError:  tt.args.lnCloseError,
 			}
 			defer ln.Listener.Close()
 
